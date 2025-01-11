@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Amazon Adventure</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #000;
+            touch-action: none; /* 모바일에서 스크롤 방지 */
+        }
+        
+        .game-container {
+            position: relative;
+            width: 95vw;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #4CAF50;
+            background: #1a1a1a;
+            width: 100%;
+            height: auto;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: -40px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: white;
+            font-size: 14px;
+            padding: 10px;
+        }
+        
+        #gameStats {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="gameStats">크리스탈: <span id="crystalCount">0</span></div>
+        <div class="controls">
+            방향키: 이동 | 스페이스바: 점프 | Z: 공격
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 이미지 로드를 위한 객체 추가
+        const sprites = {
+            player: new Image(),
+            crystal: new Image(),
+            enemy: new Image()
+        };
+
+        // 이미지 로드
+        sprites.player.src = 'images/player.png';  // 플레이어 스프라이트
+        sprites.crystal.src = 'images/crystal.png'; // 크리스탈 스프라이트
+        sprites.enemy.src = 'images/enemy.png';    // 적 스프라이트
+
+        // 이미지와 사운드를 임시로 제거하고 게임 상태만 유지
+        const gameState = {
+            player: {
+                x: 100,
+                y: 450,
+                width: 50,
+                height: 50,
+                speed: 5,
+                jumping: false,
+                velocity: 0,
+                crystals: 0,
+                direction: 1,  // 1: 오른쪽, -1: 왼쪽
+                canShoot: true,  // 발사 가능 상태
+                shootCooldown: 500,  // 발사 쿨다운 (밀리초)
+                alive: true,  // 생존 상태 추가
+                respawnTime: 1000,  // 리스폰 시간 (1초)
+                frameX: 0,        // 현재 프레임 X
+                frameY: 0,        // 현재 프레임 Y
+                maxFrame: 8,      // 전체 프레임 수
+                frameTimer: 0,    // 프레임 타이머
+                frameInterval: 100 // 프레임 간격 (밀리초)
+            },
+            bullets: [],  // 총알 배열
+            crystals: [],
+            enemies: [],
+            platforms: [],
+            camera: {
+                x: 0,
+                y: 0
+            },
+            worldWidth: 3200,  // 맵 전체 너비를 3200px로 확장
+            worldHeight: 600
+        };
+
+        // 충돌 감지 함수
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+
+        // 크랫폼 생성 함수 추가
+        function createPlatforms() {
+            gameState.platforms = [
+                // 기본 바닥
+                { x: 0, y: 500, width: gameState.worldWidth, height: 100 },
+                // 추가 플랫폼들
+                { x: 300, y: 350, width: 200, height: 20 },
+                { x: 600, y: 200, width: 150, height: 20 },
+                { x: 900, y: 300, width: 200, height: 20 },
+                { x: 1200, y: 250, width: 150, height: 20 },
+                { x: 1500, y: 350, width: 200, height: 20 },
+                { x: 1800, y: 200, width: 150, height: 20 },
+                { x: 2100, y: 300, width: 200, height: 20 },
+                { x: 2400, y: 250, width: 150, height: 20 },
+                { x: 2700, y: 350, width: 200, height: 20 },
+                { x: 3000, y: 200, width: 150, height: 20 }
+            ];
+        }
+
+        // 크리스탈 생성 함수 수정
+        function createCrystals() {
+            gameState.crystals = [];
+            for (let i = 0; i < 25; i++) {
+                const x = 200 + (i * 120);
+                let y = Math.random() * 300 + 100;
+                let validPosition = false;
+                
+                // 플랫폼과 겹치지 않는 위치 찾기
+                while (!validPosition) {
+                    validPosition = true;
+                    for (const platform of gameState.platforms) {
+                        // 크리스탈과 플랫폼 사이에 최소 40픽셀의 간격 유지
+                        if (x >= platform.x - 30 && x <= platform.x + platform.width + 30 &&
+                            y >= platform.y - 40 && y <= platform.y + platform.height + 40) {
+                            y = Math.random() * 300 + 100;
+                            validPosition = false;
+                            break;
+                        }
+                    }
+                }
+                
+                gameState.crystals.push({
+                    x: x,
+                    y: y,
+                    width: 30,
+                    height: 30
+                });
+            }
+        }
+
+        // 적 생성 함수 수정
+        function createEnemies() {
+            gameState.enemies = [];
+            const possibleHeights = [200, 300, 400, 450];  // 다양한 높이 설정
+            
+            for (let i = 0; i < 10; i++) {
+                const x = 500 + (i * 250);
+                const y = possibleHeights[Math.floor(Math.random() * possibleHeights.length)];  // 랜덤 높이 선택
+                gameState.enemies.push({
+                    x: x,
+                    y: y,
+                    width: 40,
+                    height: 40,
+                    direction: 1,
+                    speed: 2,
+                    patrolStart: x - 100,
+                    patrolEnd: x + 100,
+                    alive: true
+                });
+            }
+        }
+
+        // 카메라 업데이트 함수 추가
+        function updateCamera() {
+            // 플레이어가 화면의 1/3 지점을 넘어가면 카메라가 따라감
+            const targetX = gameState.player.x - canvas.width / 3;
+            
+            // 카메라가 맵의 경계를 벗어나지 않도록 제한
+            gameState.camera.x = Math.max(0, Math.min(targetX, gameState.worldWidth - canvas.width));
+        }
+
+        // Canvas 크기를 모바일 화면에 맞게 조정
+        function resizeCanvas() {
+            const container = document.querySelector('.game-container');
+            const screenWidth = window.innerWidth;
+            const screenHeight = window.innerHeight;
+            
+            // 화면 크기에 맞게 캔버스 크기 조정
+            canvas.width = Math.min(800, screenWidth * 0.95);
+            canvas.height = Math.min(600, screenHeight * 0.8);
+            
+            // 게임 요소들의 크기도 조정
+            gameState.player.width = canvas.width * 0.1;  // 화면 너비의 10%
+            gameState.player.height = gameState.player.width;
+            
+            // 플랫폼 높이 조정
+            const platformHeight = canvas.height * 0.05;  // 화면 높이의 5%
+            
+            // 기본 바닥 위치 조정
+            const groundY = canvas.height * 0.8;  // 화면 높이의 80% 위치에 바닥 배치
+            
+            // 플랫폼 재생성
+            gameState.platforms = [
+                // 기본 바닥
+                { x: 0, y: groundY, width: gameState.worldWidth, height: platformHeight },
+                // 추가 플랫폼들
+                { x: canvas.width * 0.3, y: groundY - 150, width: canvas.width * 0.2, height: platformHeight },
+                { x: canvas.width * 0.6, y: groundY - 250, width: canvas.width * 0.2, height: platformHeight },
+                // ... 더 많은 플랫폼 추가 가능
+            ];
+            
+            // 플레이어 초기 위치 조정
+            gameState.player.x = canvas.width * 0.1;
+            gameState.player.y = groundY - gameState.player.height;
+        }
+
+        // 페이지 로드 시와 화면 크기 변경 시 실행
+        window.addEventListener('load', resizeCanvas);
+        window.addEventListener('resize', resizeCanvas);
+
+        // 게임 초기화 함수 수정
+        function initGame() {
+            resizeCanvas();
+            createPlatforms();
+            createCrystals();
+            createEnemies();
+            gameLoop();  // 바로 게임 루프 시작
+        }
+
+        // 키보드 입력 처리
+        const keys = {};
+
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            // Z키 공격
+            if ((e.key === 'z' || e.key === 'Z') && gameState.player.canShoot) {
+                createBullet();
+                gameState.player.canShoot = false;
+                setTimeout(() => {
+                    gameState.player.canShoot = true;
+                }, gameState.player.shootCooldown);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        // 총알 생성 함수 수정
+        function createBullet() {
+            const bulletSpeed = 10;
+            const bulletX = gameState.player.direction > 0 ? 
+                gameState.player.x + gameState.player.width : 
+                gameState.player.x;
+            
+            gameState.bullets.push({
+                x: bulletX,
+                y: gameState.player.y + gameState.player.height/2 - 2.5,
+                width: 10,
+                height: 5,
+                speed: bulletSpeed * gameState.player.direction
+            });
+        }
+
+        // 플레이어 리스폰 함수 추가
+        function respawnPlayer() {
+            setTimeout(() => {
+                gameState.player.x = 100;
+                gameState.player.y = 450;
+                gameState.player.alive = true;
+                gameState.player.velocity = 0;
+                gameState.player.jumping = false;
+            }, gameState.player.respawnTime);
+        }
+
+        // 플레이어 사망 처리 함수 추가
+        function killPlayer() {
+            if (gameState.player.alive) {
+                gameState.player.alive = false;
+                createPlayerExplosion(
+                    gameState.player.x + gameState.player.width/2, 
+                    gameState.player.y + gameState.player.height/2
+                );
+                respawnPlayer();
+            }
+        }
+
+        // 플레이어 폭발 효과 함수 추가
+        function createPlayerExplosion(x, y) {
+            if (!gameState.explosions) {
+                gameState.explosions = [];
+            }
+            
+            // 여러 개의 파티클 생성
+            for (let i = 0; i < 20; i++) {
+                const angle = (Math.PI * 2 / 20) * i;
+                const speed = 5;
+                gameState.explosions.push({
+                    x: x,
+                    y: y,
+                    dx: Math.cos(angle) * speed,
+                    dy: Math.sin(angle) * speed,
+                    life: 30,
+                    radius: 5,
+                    color: '#FF9800'  // 플레이어 색상과 동일
+                });
+            }
+        }
+
+        // 게임 루프
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 카메라 업데이트
+            updateCamera();
+            
+            // 모든 요소들을 카메라 위치에 맞춰 그리기
+            ctx.save();
+            ctx.translate(-gameState.camera.x, 0);
+
+            // 1. 먼저 플랫폼 그리기
+            ctx.fillStyle = '#4CAF50';
+            gameState.platforms.forEach(platform => {
+                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+            });
+
+            // 2. 크리스탈 그리기
+            ctx.fillStyle = '#FFD700';
+            gameState.crystals.forEach((crystal, index) => {
+                drawCrystal(crystal);
+                
+                if (gameState.player.alive && checkCollision(gameState.player, crystal)) {
+                    gameState.crystals.splice(index, 1);
+                    gameState.player.crystals++;
+                    document.getElementById('crystalCount').textContent = gameState.player.crystals;
+                }
+            });
+
+            // 3. 적 업데이트 및 그리기
+            ctx.fillStyle = '#FF0000';
+            gameState.enemies.forEach(enemy => {
+                // 적 이동
+                enemy.x += enemy.speed * enemy.direction;
+                if (enemy.x <= enemy.patrolStart || enemy.x >= enemy.patrolEnd) {
+                    enemy.direction *= -1;
+                }
+                
+                drawEnemy(enemy);
+            });
+
+            // 4. 총알 업데이트 및 그리기
+            ctx.fillStyle = '#FFFFFF';
+            for (let i = gameState.bullets.length - 1; i >= 0; i--) {
+                const bullet = gameState.bullets[i];
+                bullet.x += bullet.speed;
+
+                // 화면 밖으로 나간 총알 제거
+                if (bullet.x < gameState.camera.x || bullet.x > gameState.camera.x + canvas.width) {
+                    gameState.bullets.splice(i, 1);
+                    continue;
+                }
+
+                // 총알 그리기
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+
+                // 적과의 충돌 체크
+                for (let j = gameState.enemies.length - 1; j >= 0; j--) {
+                    const enemy = gameState.enemies[j];
+                    if (checkBulletEnemyCollision(bullet, enemy)) {
+                        createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2);
+                        gameState.enemies.splice(j, 1);
+                        gameState.bullets.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+
+            // 5. 플레이어 업데이트
+            if (gameState.player.alive) {
+                // 플레이어 이동
+                if (keys['ArrowLeft']) {
+                    gameState.player.x -= gameState.player.speed;
+                    gameState.player.direction = -1;
+                }
+                if (keys['ArrowRight']) {
+                    gameState.player.x += gameState.player.speed;
+                    gameState.player.direction = 1;
+                }
+
+                // 중력 적용
+                gameState.player.velocity += 0.8;
+                gameState.player.y += gameState.player.velocity;
+
+                // 플랫폼 충돌 체크
+                let onPlatform = false;
+                gameState.platforms.forEach(platform => {
+                    if (checkCollision(gameState.player, platform)) {
+                        if (gameState.player.velocity > 0) {
+                            gameState.player.y = platform.y - gameState.player.height;
+                            gameState.player.velocity = 0;
+                            gameState.player.jumping = false;
+                            onPlatform = true;
+                        }
+                    }
+                });
+
+                // 점프 처리
+                if (keys[' '] && !gameState.player.jumping) {
+                    gameState.player.jumping = true;
+                    // 기본 점프력에 현재 이동 속도를 반영
+                    let jumpPower = -15;
+                    if (keys['ArrowRight'] || keys['ArrowLeft']) {
+                        jumpPower -= 2; // 달리는 중일 때 추가 점프력
+                    }
+                    gameState.player.velocity = jumpPower;
+                }
+
+                // 적과의 충돌 체크
+                gameState.enemies.forEach(enemy => {
+                    if (checkCollision(gameState.player, enemy)) {
+                        killPlayer();
+                    }
+                });
+
+                // 화면 바깥으로 떨어졌을 때
+                if (gameState.player.y > canvas.height) {
+                    killPlayer();
+                }
+
+                // 플레이어 그리기
+                drawPlayer();
+            }
+
+            // 6. 폭발 효과 업데이트 및 그리기
+            if (gameState.explosions) {
+                for (let i = gameState.explosions.length - 1; i >= 0; i--) {
+                    const explosion = gameState.explosions[i];
+                    
+                    if (explosion.dx !== undefined) {
+                        explosion.x += explosion.dx;
+                        explosion.y += explosion.dy;
+                        explosion.dx *= 0.95;
+                        explosion.dy *= 0.95;
+                    }
+                    
+                    explosion.life--;
+                    
+                    if (explosion.life <= 0) {
+                        gameState.explosions.splice(i, 1);
+                        continue;
+                    }
+
+                    ctx.beginPath();
+                    ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = explosion.color || 
+                        `rgba(255, ${explosion.life * 10}, 0, ${explosion.life / 30})`;
+                    ctx.fill();
+                }
+            }
+
+            ctx.restore();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 총알과 적의 충돌 감지 함수 추가
+        function checkBulletEnemyCollision(bullet, enemy) {
+            return bullet.x < enemy.x + enemy.width &&
+                   bullet.x + bullet.width > enemy.x &&
+                   bullet.y < enemy.y + enemy.height &&
+                   bullet.y + bullet.height > enemy.y;
+        }
+
+        // 폭발 효과 생성 함수
+        function createExplosion(x, y) {
+            if (!gameState.explosions) {
+                gameState.explosions = [];
+            }
+            
+            gameState.explosions.push({
+                x: x,
+                y: y,
+                life: 20,
+                radius: 2
+            });
+        }
+
+        // gameLoop 함수 내 폭발 효과 업데이트 및 그리기
+        function updateAndDrawExplosions() {
+            if (!gameState.explosions) return;
+
+            for (let i = gameState.explosions.length - 1; i >= 0; i--) {
+                const explosion = gameState.explosions[i];
+                explosion.life--;
+                explosion.radius += 1;
+                
+                if (explosion.life <= 0) {
+                    gameState.explosions.splice(i, 1);
+                    continue;
+                }
+
+                ctx.beginPath();
+                ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, ${explosion.life * 10}, 0, ${explosion.life / 20})`;
+                ctx.fill();
+            }
+        }
+
+        // 적 업데이트 부분 수정
+        function updateEnemies() {
+            gameState.enemies.forEach(enemy => {
+                // 순찰 이동
+                enemy.x += enemy.speed * enemy.direction;
+                
+                // 순찰 범위 체크
+                if (enemy.x <= enemy.patrolStart || enemy.x >= enemy.patrolEnd) {
+                    enemy.direction *= -1;
+                }
+            });
+        }
+
+        // 플레이어 그리기 부분 수정
+        function drawPlayer() {
+            if (!gameState.player.alive) return;
+            ctx.fillStyle = '#FF9800';  // 주황색
+            ctx.fillRect(
+                gameState.player.x,
+                gameState.player.y,
+                gameState.player.width,
+                gameState.player.height
+            );
+        }
+
+        // 크리스탈 그리기 수정
+        function drawCrystal(crystal) {
+            ctx.fillStyle = '#FFD700';  // 골드색
+            ctx.beginPath();
+            ctx.arc(
+                crystal.x + crystal.width/2,
+                crystal.y + crystal.height/2,
+                crystal.width/2,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+        }
+
+        // 적 그리기 수정
+        function drawEnemy(enemy) {
+            ctx.fillStyle = '#FF0000';  // 빨간색
+            ctx.fillRect(
+                enemy.x,
+                enemy.y,
+                enemy.width,
+                enemy.height
+            );
+        }
+
+        // 페이지 로드 시 바로 게임 시작
+        window.addEventListener('load', initGame);
+    </script>
+</body>
+</html> 
