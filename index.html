@@ -2,7 +2,16 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- iOS 최적화 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Space Game">
+    
+    <!-- iOS 아이콘 -->
+    <link rel="apple-touch-icon" href="icons/icon-180x180.png">
+    
     <title>Space Amazon Adventure</title>
     <style>
         body {
@@ -50,14 +59,74 @@
             font-size: 16px;
             z-index: 1;
         }
+        
+        /* 모바일 컨트롤 스타일 */
+        .mobile-controls {
+            display: none; /* 기본적으로 숨김 */
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            z-index: 1000;
+        }
+
+        .control-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            font-size: 24px;
+            margin: 5px;
+            touch-action: manipulation;
+        }
+
+        /* 모바일 디바이스에서만 컨트롤 표시 */
+        @media (max-width: 768px) {
+            .mobile-controls {
+                display: flex;
+                justify-content: space-between;
+            }
+            
+            .keyboard-controls {
+                display: none;
+            }
+        }
+
+        /* PC에서만 키보드 컨트롤 설명 표시 */
+        @media (min-width: 769px) {
+            .mobile-controls {
+                display: none;
+            }
+            
+            .keyboard-controls {
+                display: block;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="game-container">
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <canvas id="gameCanvas"></canvas>
         <div id="gameStats">크리스탈: <span id="crystalCount">0</span></div>
-        <div class="controls">
+        
+        <!-- PC 키보드 컨트롤 설명 -->
+        <div class="keyboard-controls controls">
             방향키: 이동 | 스페이스바: 점프 | Z: 공격
+        </div>
+        
+        <!-- 모바일 터치 컨트롤 -->
+        <div class="mobile-controls">
+            <div class="direction-buttons">
+                <button class="control-button" id="leftBtn">←</button>
+                <button class="control-button" id="rightBtn">→</button>
+            </div>
+            <div class="action-buttons">
+                <button class="control-button" id="jumpBtn">↑</button>
+                <button class="control-button" id="attackBtn">Z</button>
+            </div>
         </div>
     </div>
 
@@ -200,60 +269,11 @@
             gameState.camera.x = Math.max(0, Math.min(targetX, gameState.worldWidth - canvas.width));
         }
 
-        // Canvas 크기를 모바일 화면에 맞게 조정
-        function resizeCanvas() {
-            const container = document.querySelector('.game-container');
-            const screenWidth = window.innerWidth;
-            const screenHeight = window.innerHeight;
-            
-            // 화면 크기에 맞게 캔버스 크기 조정
-            canvas.width = Math.min(800, screenWidth * 0.95);
-            canvas.height = Math.min(600, screenHeight * 0.8);
-            
-            // 게임 요소들의 크기도 조정
-            gameState.player.width = canvas.width * 0.1;  // 화면 너비의 10%
-            gameState.player.height = gameState.player.width;
-            
-            // 플랫폼 높이 조정
-            const platformHeight = canvas.height * 0.05;  // 화면 높이의 5%
-            
-            // 기본 바닥 위치 조정
-            const groundY = canvas.height * 0.8;  // 화면 높이의 80% 위치에 바닥 배치
-            
-            // 플랫폼 재생성
-            gameState.platforms = [
-                // 기본 바닥
-                { x: 0, y: groundY, width: gameState.worldWidth, height: platformHeight },
-                // 추가 플랫폼들
-                { x: canvas.width * 0.3, y: groundY - 150, width: canvas.width * 0.2, height: platformHeight },
-                { x: canvas.width * 0.6, y: groundY - 250, width: canvas.width * 0.2, height: platformHeight },
-                // ... 더 많은 플랫폼 추가 가능
-            ];
-            
-            // 플레이어 초기 위치 조정
-            gameState.player.x = canvas.width * 0.1;
-            gameState.player.y = groundY - gameState.player.height;
-        }
-
-        // 페이지 로드 시와 화면 크기 변경 시 실행
-        window.addEventListener('load', resizeCanvas);
-        window.addEventListener('resize', resizeCanvas);
-
-        // 게임 초기화 함수 수정
-        function initGame() {
-            resizeCanvas();
-            createPlatforms();
-            createCrystals();
-            createEnemies();
-            gameLoop();  // 바로 게임 루프 시작
-        }
-
         // 키보드 입력 처리
         const keys = {};
 
         document.addEventListener('keydown', (e) => {
             keys[e.key] = true;
-            // Z키 공격
             if ((e.key === 'z' || e.key === 'Z') && gameState.player.canShoot) {
                 createBullet();
                 gameState.player.canShoot = false;
@@ -266,6 +286,86 @@
         document.addEventListener('keyup', (e) => {
             keys[e.key] = false;
         });
+
+        // 모바일 컨트롤 설정
+        function setupMobileControls() {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            if (!isMobile) return;
+
+            const buttons = {
+                leftBtn: { key: 'ArrowLeft' },
+                rightBtn: { key: 'ArrowRight' },
+                jumpBtn: { key: ' ' },
+                attackBtn: { key: 'z' }
+            };
+
+            Object.entries(buttons).forEach(([btnId, { key }]) => {
+                const btn = document.getElementById(btnId);
+                
+                // 터치 이벤트
+                btn.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    keys[key] = true;
+                    
+                    if (btnId === 'attackBtn' && gameState.player.canShoot) {
+                        createBullet();
+                        gameState.player.canShoot = false;
+                        setTimeout(() => {
+                            gameState.player.canShoot = true;
+                        }, gameState.player.shootCooldown);
+                    }
+                }, { passive: false });
+
+                btn.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    keys[key] = false;
+                }, { passive: false });
+            });
+        }
+
+        // 화면 크기 조정 함수 수정
+        function resizeCanvas() {
+            const container = document.querySelector('.game-container');
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+                // 모바일 화면 설정
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+                const aspectRatio = 4/3;
+                
+                let width = screenWidth;
+                let height = width / aspectRatio;
+                
+                if (height > screenHeight * 0.7) {
+                    height = screenHeight * 0.7;
+                    width = height * aspectRatio;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+            } else {
+                // PC 화면 설정
+                canvas.width = Math.min(800, window.innerWidth * 0.95);
+                canvas.height = Math.min(600, window.innerHeight * 0.8);
+            }
+            
+            // 게임 요소 크기 조정
+            gameState.player.width = canvas.width * 0.1;
+            gameState.player.height = gameState.player.width;
+            
+            createPlatforms();
+        }
+
+        // 게임 초기화 함수 수정
+        function initGame() {
+            setupMobileControls();
+            resizeCanvas();
+            createPlatforms();
+            createCrystals();
+            createEnemies();
+            gameLoop();
+        }
 
         // 총알 생성 함수 수정
         function createBullet() {
@@ -576,8 +676,12 @@
             );
         }
 
-        // 페이지 로드 시 바로 게임 시작
+        // 이벤트 리스너
         window.addEventListener('load', initGame);
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('orientationchange', () => {
+            setTimeout(resizeCanvas, 100);
+        });
     </script>
 </body>
 </html> 
